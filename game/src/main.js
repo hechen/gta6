@@ -87,8 +87,9 @@ function announce(message) {
 
 function showScreen(name) {
   world.screen = name;
+  const ids = { title: 'screen-title', paused: 'screen-pause', over: 'screen-over', busted: 'screen-busted' };
   for (const id of ['screen-title', 'screen-pause', 'screen-over', 'screen-busted']) {
-    document.getElementById(id).classList.toggle('screen-show', `screen-${name}` === id);
+    document.getElementById(id).classList.toggle('screen-show', ids[name] === id);
   }
   document.getElementById('hud').classList.toggle('hud-hidden', name === SCREEN_TITLE);
 }
