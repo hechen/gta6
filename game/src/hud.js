@@ -47,7 +47,7 @@ export function createHud(city) {
     ctx.fillStyle = '#3a4148';
     for (let j = 0; j < 9; j++) {
       for (let i = 0; i < 9; i++) {
-        ctx.fillRect(mapX(-200 + i * 50 - 18), mapZ(-200 + j * 50 - 18), 36 * SCALE, 36 * SCALE);
+        ctx.fillRect(mapX(-175 + i * 50 - 18), mapZ(-175 + j * 50 - 18), 36 * SCALE, 36 * SCALE);
       }
     }
     // Roads.

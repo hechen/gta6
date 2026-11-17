@@ -111,11 +111,11 @@ export function createCity(rng, textures) {
     gunshop: { x: 125, z: -75, label: 'Iron & Lead' },
     hospital: { x: -125, z: 75, label: 'St. Coral Hospital' },
     police: { x: -75, z: -125, label: 'Police HQ' },
-    plaza: { x: 0, z: 0, label: 'Plaza del Sol' },
+    plaza: { x: 25, z: 25, label: 'Plaza del Sol' },
     beach: { x: -100, z: 225, label: 'Coral Beach' },
   };
   const locationBlocks = new Set(
-    Object.values(locations).map((l) => `${Math.round((l.x + 200) / 50)},${Math.round((l.z + 200) / 50)}`),
+    Object.values(locations).map((l) => `${Math.round((l.x + 175) / 50)},${Math.round((l.z + 175) / 50)}`),
   );
 
   // --- Blocks: one building, park, lot or plaza each. ---
@@ -130,8 +130,10 @@ export function createCity(rng, textures) {
 
   for (let j = 0; j < 9; j++) {
     for (let i = 0; i < 9; i++) {
-      const cx = -200 + i * 50;
-      const cz = -200 + j * 50;
+      // Block centres sit half a pitch off the road lines, so each 36 m block leaves
+      // a 14 m street on every side: the roads stay clear all the way across town.
+      const cx = -175 + i * 50;
+      const cz = -175 + j * 50;
       const blockKey = `${i},${j}`;
       if (blockKey === '4,4') {
         // Plaza del Sol: stone tiles, benches, palms.

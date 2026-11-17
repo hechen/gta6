@@ -39,7 +39,7 @@ export function createRenderer(canvas) {
   // Camera state: orbit yaw/pitch around the target, distance, and trauma for shake.
   const cam = {
     yaw: Math.PI,
-    pitch: 0.32,
+    pitch: 0.24,
     distance: 9,
     targetDistance: 9,
     trauma: 0,
@@ -84,8 +84,8 @@ export function createRenderer(canvas) {
     const shake = cam.trauma * cam.trauma;
     const sx = (Math.random() - 0.5) * shake * 0.6;
     const sy = (Math.random() - 0.5) * shake * 0.4;
-    const dist = cam.distance + (inCar ? 2.5 : 0);
-    const height = dist * Math.sin(cam.pitch) + (inCar ? 1.2 : 1.4);
+    const dist = cam.distance + (inCar ? 1.5 : 0);
+    const height = dist * Math.sin(cam.pitch) + (inCar ? 1.0 : 1.4);
     const back = dist * Math.cos(cam.pitch);
     const cx = target.x - Math.sin(cam.yaw) * back + sx;
     const cz = target.z - Math.cos(cam.yaw) * back;

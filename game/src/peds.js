@@ -112,14 +112,15 @@ export function createPeds(city, scene, rng) {
           ped.phase += dt * ped.speed * 1.8;
         }
       }
-      // A car that hits a ped at speed knocks them down; the law notices.
+      // A car that hits a ped at speed knocks them down; only the player's car
+      // is a crime — traffic hitting a ped is just the city's bad driving.
       for (const car of world.vehicles.cars) {
         if (car.dead || Math.abs(car.speed) < 4) continue;
         if (Math.hypot(car.x - ped.x, car.z - ped.z) < 2.4) {
           ped.dead = true;
           ped.mesh.visible = false;
           world.effects.burst(ped.x, 1, ped.z, 8, 0xcc2222, 3, 0.6, 0.8);
-          world.events.push({ type: 'pedDown', x: ped.x, z: ped.z });
+          if (car === world.player.car) world.events.push({ type: 'pedDown', x: ped.x, z: ped.z });
           scare(ped.x, ped.z, 25);
           break;
         }

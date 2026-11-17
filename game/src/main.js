@@ -480,7 +480,7 @@ if (shot) {
     renderer.render();
     hud.update(1 / 30, world);
     painted += 1;
-    if (painted < 3) requestAnimationFrame(paint);
+    if (painted < 6) requestAnimationFrame(paint);
     else window.__shotReady = true;
   }
   requestAnimationFrame(paint);
