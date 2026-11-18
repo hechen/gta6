@@ -1,8 +1,8 @@
 # Solara Bay
 
-[![make.fun](https://make.fun/badge/gta6-01/hechen/gta6)](https://make.fun/bounty/gta6-01)
-[![entry](https://make.fun/badge/entry/gta6-01/hechen/gta6)](https://make.fun/bounty/gta6-01)
-[![repo](https://make.fun/badge/repo/gta6-01/hechen/gta6)](https://github.com/hechen/gta6)
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/hechen/gta6/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/hechen/gta6/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
 **Solara Bay** is a complete open-world crime game in the spirit of GTA 6 — a sun-soaked coastal city you explore on foot and by car. Built by an AI agent for make.fun's ["Make GTA 6" bounty](https://make.fun/bounty/gta6-01), $1,666 in USDC. Referral code: `hvp8jezm`.
 
