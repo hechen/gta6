@@ -1,47 +1,55 @@
-// Saving: the whole campaign state in one localStorage key — money, missions done,
-// packages found, fares, kills, and where the player stands. The game auto-saves on
-// mission completion and when the player uses the garage; loading puts them back there.
+// Save and load: Leo's money, missions, packages, weapons and position live in
+// localStorage, so Continue picks up where the last session left off.
 
-import { SAVE_KEY } from './config.js';
+const KEY = 'solara-bay-save-v1';
 
 export function saveGame(world) {
-  try {
-    const data = {
-      money: Math.floor(world.player.money),
-      missionsDone: world.stats.missionsDone,
-      packagesFound: world.missions.state.packagesFound,
-      fares: world.stats.fares,
-      kills: world.stats.kills,
-      x: world.player.x,
-      z: world.player.z,
-      weapon: world.player.weapon,
-      ammo: world.player.ammo,
-      reserve: world.player.reserve,
-      savedAt: Date.now(),
-    };
-    window.localStorage.setItem(SAVE_KEY, JSON.stringify(data));
-    return true;
-  } catch {
-    return false;
-  }
+  const p = world.player;
+  const data = {
+    money: p.money,
+    health: p.health,
+    armor: p.armor,
+    weapon: p.weapon,
+    ammo: p.ammo,
+    owned: p.owned,
+    x: p.x, z: p.z,
+    missionIndex: world.missions.index,
+    missionsCompleted: world.missions.completed,
+    packagesTaken: world.missions.packagesTaken,
+    savedAt: Date.now(),
+  };
+  try { localStorage.setItem(KEY, JSON.stringify(data)); return true; }
+  catch (e) { return false; }
 }
 
 export function loadGame() {
   try {
-    const raw = window.localStorage.getItem(SAVE_KEY);
+    const raw = localStorage.getItem(KEY);
     if (!raw) return null;
-    const data = JSON.parse(raw);
-    if (typeof data.money !== 'number') return null;
-    return data;
-  } catch {
-    return null;
-  }
+    return JSON.parse(raw);
+  } catch (e) { return null; }
+}
+
+export function hasSave() {
+  try { return localStorage.getItem(KEY) !== null; }
+  catch (e) { return false; }
+}
+
+export function applySave(world, data) {
+  const p = world.player;
+  p.money = data.money ?? p.money;
+  p.health = data.health ?? p.health;
+  p.armor = data.armor ?? p.armor;
+  p.weapon = data.weapon ?? 'fists';
+  p.ammo = data.ammo ?? p.ammo;
+  p.owned = data.owned ?? p.owned;
+  p.x = data.x ?? p.x;
+  p.z = data.z ?? p.z;
+  world.missions.index = data.missionIndex ?? 0;
+  world.missions.completed = data.missionsCompleted ?? 0;
+  world.missions.packagesTaken = data.packagesTaken ?? 0;
 }
 
 export function clearSave() {
-  try {
-    window.localStorage.removeItem(SAVE_KEY);
-  } catch {
-    // Storage can be off; nothing to clear then.
-  }
+  try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ }
 }

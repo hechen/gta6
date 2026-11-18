@@ -1,355 +1,221 @@
-// The story of Leo Voss and the jobs Mara Quinn sends him on: six missions with steps
-// (steal, drive, survive, shoot, grab, deliver), plus taxi fares and ten hidden packages
-// for money between jobs. A mission is a list of steps; finishing one pays out, saves the
-// game, and unlocks the next. Failing a timed step restarts that mission.
+// The story: six missions, plus the free-roam activities (taxi fares and hidden
+// packages) that keep paying between jobs. A mission is a small state machine;
+// the HUD shows its objective and the world shows its target marker.
 
-import { MONEY } from './config.js';
+import * as THREE from 'three';
+import { CONFIG, MISSIONS } from './config.js';
 
-const REWARDS = [300, 500, 700, 800, 1200, 2000];
+export function createMissions(world) {
+  const { scene, rng, city } = world;
 
-function step(kind, x, z, label, extra = {}) {
-  return { kind, x, z, label, radius: 6, ...extra };
-}
-
-export function createMissions(city, scene, rng, combat) {
-  const L = city.locations;
-  const missions = [
-    {
-      name: 'Wheels Up',
-      brief: "Mara Quinn needs a wheelman. Steal a car — any car — and bring it to her garage.",
-      steps: [
-        step('steal', 0, 0, 'Steal a car'),
-        step('goto', L.garage.x, L.garage.z, "Drive to Mara's Garage"),
-      ],
-    },
-    {
-      name: 'The Pickup',
-      brief: 'A package is waiting at the Marina docks. Collect it, then run it to the safehouse — fast.',
-      steps: [
-        step('goto', L.docks.x, L.docks.z, 'Collect the package at the docks'),
-        step('goto', L.safehouse.x, L.safehouse.z, 'Deliver to the safehouse', { time: 100 }),
-      ],
-    },
-    {
-      name: 'Repo Man',
-      brief: 'A sports car at Solara Motors has a missed payment. Take it. The law will notice.',
-      steps: [
-        step('stealStyle', L.dealership.x, L.dealership.z, 'Steal the target sports car', { style: 'sports', wanted: 2 }),
-        step('goto', L.garage.x, L.garage.z, "Bring it to Mara's Garage"),
-      ],
-    },
-    {
-      name: 'Hot Pursuit',
-      brief: 'Three stars and the whole department behind you. Stay free for a minute, then lose them at the spray shop.',
-      steps: [
-        step('survive', 0, 0, 'Survive the pursuit', { seconds: 60, wanted: 3 }),
-        step('goto', L.spray.x, L.spray.z, 'Lose the heat at the spray shop'),
-      ],
-    },
-    {
-      name: 'Dockside',
-      brief: 'The Vipers took the docks. Clear them out, grab the briefcase, and bring it home.',
-      steps: [
-        step('kill', L.docks.x, L.docks.z, 'Clear the docks', { count: 4, spawn: true }),
-        step('grab', L.docks.x, L.docks.z, 'Grab the briefcase', { seconds: 3 }),
-        step('goto', L.garage.x, L.garage.z, "Deliver the briefcase to Mara's Garage"),
-      ],
-    },
-    {
-      name: 'The Big One',
-      brief: 'Bay National Bank, noon, one bag. Grab the cash and get to the safehouse — the city will be looking.',
-      steps: [
-        step('goto', L.bank.x, L.bank.z, 'Reach the bank'),
-        step('grab', L.bank.x, L.bank.z, 'Grab the cash', { seconds: 5, wanted: 4 }),
-        step('goto', L.safehouse.x, L.safehouse.z, 'Escape to the safehouse'),
-      ],
-    },
-  ];
-
-  // The objective beacon: a pillar of light and a floating diamond over the target.
-  const beaconMat = new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.25, depthWrite: false });
-  const beacon = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 60, 12, 1, true), beaconMat);
-  beacon.position.y = 30;
-  beacon.visible = false;
-  scene.add(beacon);
-  const diamond = new THREE.Mesh(
-    new THREE.OctahedronGeometry(0.9),
-    new THREE.MeshBasicMaterial({ color: 0xffd24a, transparent: true, opacity: 0.95 }),
-  );
-  diamond.visible = false;
-  scene.add(diamond);
-
-  // Ten hidden packages across the city, worth $150 each.
-  const packages = [];
-  for (let i = 0; i < 10; i++) {
-    const p = city.randomSidewalkPoint();
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(0.7, 0.7, 0.7),
-      new THREE.MeshStandardMaterial({ color: 0x2fae5a, emissive: 0x2fae5a, emissiveIntensity: 0.6, roughness: 0.4 }),
+  // A floating target marker: a ring on the ground and a light beam.
+  function makeTargetMarker(color) {
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(2.6, 3.4, 24),
+      new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.9 }),
     );
-    mesh.position.set(p.x, 0.8, p.z);
-    mesh.castShadow = true;
-    scene.add(mesh);
-    packages.push({ mesh, x: p.x, z: p.z, found: false, bob: Math.random() * 6 });
+    ring.rotation.x = -Math.PI / 2;
+    const beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.45, 0.45, 16, 8, 1, true),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    ring.visible = false; beam.visible = false;
+    scene.add(ring, beam);
+    return {
+      ring, beam,
+      set(x, z) {
+        ring.visible = true; beam.visible = true;
+        ring.position.set(x, 0.09, z);
+        beam.position.set(x, 8, z);
+      },
+      hide() { ring.visible = false; beam.visible = false; },
+    };
   }
 
-  const state = {
-    index: 0, // the mission the player is on; -1 when the story is done
-    stepIndex: 0,
-    active: false,
-    timer: 0,
-    surviveLeft: 0,
-    killCount: 0,
-    grabProgress: 0,
-    targetCar: null,
-    taxi: null, // {ped, destX, destZ, timer, fare}
-    taxiCooldown: 0,
-    packagesFound: 0,
+  const marker = makeTargetMarker(0x2fd6a3);
+
+  // Hidden packages: ten glowing cases stashed around the city.
+  const packages = [];
+  {
+    const geo = new THREE.BoxGeometry(0.9, 0.6, 0.9);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x2fd6a3 });
+    for (let i = 0; i < CONFIG.packageCount; i++) {
+      const p = city.randomSidewalkPoint();
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(p.x, 0.5, p.z);
+      scene.add(mesh);
+      packages.push({ mesh, x: p.x, z: p.z, taken: false });
+    }
+  }
+
+  const missions = {
+    index: 0,            // next mission to start
+    active: null,        // current mission definition + progress
+    completed: 0,
+    packagesTaken: 0,
+    faresDone: 0,
+    // Taxi fare state.
+    fare: null,
+    fareCooldown: 0,
   };
 
-  function currentMission() {
-    return state.index >= 0 && state.index < missions.length ? missions[state.index] : null;
-  }
-  function currentStep() {
-    const m = currentMission();
-    return m ? m.steps[state.stepIndex] : null;
-  }
-
-  function say(world, text, tone = 'info') {
-    world.events.push({ type: 'message', text, tone });
-  }
-
-  function startMission(index, world) {
-    state.index = index;
-    state.stepIndex = 0;
-    state.active = true;
-    state.timer = 0;
-    state.surviveLeft = 0;
-    state.killCount = 0;
-    state.grabProgress = 0;
-    state.targetCar = null;
-    const m = missions[index];
-    say(world, `Mission: ${m.name} — ${m.brief}`, 'mission');
+  function startMission(i) {
+    const def = MISSIONS[i];
+    if (!def) return;
+    missions.active = { def, progress: 0, stage: 0, timer: 0, target: null, enemies: [] };
+    world.hud.showBriefing(def.title, def.brief);
+    world.hud.setObjective(def.objective);
     world.audio.mission();
-    beginStep(world);
+    if (def.type === 'steal') marker.set(city.markers.garage.x, city.markers.garage.z);
+    if (def.type === 'shootout') spawnRivals();
+    if (def.type === 'heat') { world.police.setStars(3); }
+    if (def.type === 'heist') marker.set(city.markers.bank.x, city.markers.bank.z);
+    if (def.type === 'taxi') startFare();
   }
 
-  function beginStep(world) {
-    const s = currentStep();
-    if (!s) {
-      completeMission(world);
-      return;
+  function spawnRivals() {
+    const docks = city.blockCenter(7, 0);
+    const spots = [
+      { x: docks.x - 8, z: docks.z + 6 },
+      { x: docks.x + 6, z: docks.z - 4 },
+      { x: docks.x + 2, z: docks.z + 12 },
+    ];
+    for (const s of spots) {
+      const e = world.combat.spawnEnemy(s.x, s.z);
+      missions.active.enemies.push(e);
     }
-    if (s.kind === 'stealStyle') {
-      state.targetCar = world.vehicles.spawnCar(s.style, 0xc23b2e, s.x, s.z, 0, 'mission');
-      state.targetCar.health = 100;
-    }
-    if (s.kind === 'kill' && s.spawn) {
-      for (let i = 0; i < s.count; i++) {
-        const a = (i / s.count) * Math.PI * 2;
-        combat.makeEnemy(s.x + Math.sin(a) * 8, s.z + Math.cos(a) * 8);
-      }
-    }
-    if (s.kind === 'survive') {
-      state.surviveLeft = s.seconds;
-      world.police.setStars(s.wanted || 3, world);
-    }
-    if (s.kind === 'grab' && s.wanted) {
-      world.police.setStars(s.wanted, world);
-    }
-    if (s.kind === 'stealStyle' && s.wanted) {
-      // The stars come when the car is actually taken, not before.
-    }
-    state.timer = s.time || 0;
-    state.grabProgress = 0;
-    updateBeacon();
+    marker.set(docks.x, docks.z);
   }
 
-  function updateBeacon() {
-    const s = currentStep();
-    const tx = state.taxi;
-    if (tx) {
-      beacon.visible = true;
-      diamond.visible = true;
-      beacon.position.x = tx.destX;
-      beacon.position.z = tx.destZ;
-      diamond.position.set(tx.destX, 6, tx.destZ);
-      return;
-    }
-    if (!state.active || !s || s.kind === 'steal' || s.kind === 'survive') {
-      beacon.visible = false;
-      diamond.visible = false;
-      return;
-    }
-    const x = s.kind === 'stealStyle' && state.targetCar ? state.targetCar.x : s.x;
-    const z = s.kind === 'stealStyle' && state.targetCar ? state.targetCar.z : s.z;
-    beacon.visible = true;
-    diamond.visible = true;
-    beacon.position.x = x;
-    beacon.position.z = z;
-    diamond.position.set(x, 6, z);
-  }
-
-  function advance(world) {
-    state.stepIndex += 1;
-    world.audio.objective();
-    beginStep(world);
-  }
-
-  function completeMission(world) {
-    const m = missions[state.index];
-    const reward = REWARDS[state.index] || 500;
-    world.player.money += reward;
-    world.stats.missionsDone += 1;
-    say(world, `${m.name} complete — +$${reward}`, 'good');
-    world.audio.win();
-    world.effects.floatText(`+$${reward}`, world.player.x, 3, world.player.z, '#7dff8a');
-    state.active = false;
-    beacon.visible = false;
-    diamond.visible = false;
-    world.events.push({ type: 'missionComplete', index: state.index });
-    if (state.index + 1 < missions.length) {
-      state.index += 1;
-      state.stepIndex = 0;
+  function completeMission() {
+    const m = missions.active;
+    const reward = CONFIG.missionReward[m.def.id] || 500;
+    world.player.addMoney(reward);
+    world.hud.message(`Mission complete: ${m.def.title} — $${reward}`, 'good');
+    world.audio.mission();
+    missions.completed++;
+    missions.index++;
+    missions.active = null;
+    marker.hide();
+    if (missions.index < MISSIONS.length) {
+      setTimeout(() => startMission(missions.index), 2500);
     } else {
-      state.index = -1;
-      say(world, 'Story complete — you are the King of Solara Bay. Free roam is yours.', 'good');
-      world.events.push({ type: 'storyComplete' });
+      world.hud.showBriefing('Solara Bay is yours', 'Every job is done. The city is yours now, Leo — free roam, earn, and enjoy the sun.');
+      world.hud.setObjective('Free roam — the city is yours');
     }
   }
 
-  function failMission(world, reason) {
-    say(world, `Mission failed: ${reason}. Starting ${missions[state.index].name} over.`, 'bad');
-    world.audio.fail();
-    if (state.targetCar) {
-      world.vehicles.removeCar(state.targetCar);
-      state.targetCar = null;
-    }
-    combat.clearEnemies();
-    startMission(state.index, world);
+  // --- Taxi fares.
+  function startFare() {
+    const p = city.randomRoadPoint();
+    missions.fare = { stage: 'pickup', x: p.x, z: p.z, dest: null };
+    marker.set(p.x, p.z);
+    world.hud.message('Taxi fare: pick up the passenger', 'info');
   }
 
-  function onEvent(ev, world) {
-    if (!state.active) return;
-    const s = currentStep();
-    if (!s) return;
-    if (ev.type === 'carStolen') {
-      if (s.kind === 'steal') advance(world);
-      else if (s.kind === 'stealStyle' && ev.car === state.targetCar) {
-        if (s.wanted) world.police.setStars(s.wanted, world);
-        advance(world);
-      }
-    }
-    if (ev.type === 'enemyDown' && s.kind === 'kill') {
-      state.killCount += 1;
-      if (state.killCount >= s.count) advance(world);
+  function fareDestination() {
+    const p = city.randomRoadPoint();
+    missions.fare.stage = 'dropoff';
+    missions.fare.dest = p;
+    marker.set(p.x, p.z);
+    world.hud.message('Taxi fare: take them to the destination', 'info');
+  }
+
+  function finishFare() {
+    world.player.addMoney(CONFIG.taxiFare);
+    world.hud.message(`Fare complete — $${CONFIG.taxiFare}`, 'good');
+    missions.faresDone++;
+    missions.fare = null;
+    marker.hide();
+    if (missions.active && missions.active.def.type === 'taxi') {
+      missions.active.progress = missions.faresDone;
+      if (missions.faresDone >= 3) { missions.faresDone = 0; completeMission(); }
+      else startFare();
+    } else {
+      missions.fareCooldown = 8;
     }
   }
 
-  function update(dt, world) {
+  missions.startMission = startMission;
+  missions.completeMission = completeMission;
+
+  missions.update = function (dt) {
     const player = world.player;
-    // The beacon's diamond bobs.
-    if (diamond.visible) {
-      diamond.position.y = 6 + Math.sin(world.time * 2.4) * 0.6;
-      diamond.rotation.y += dt * 1.5;
-    }
-    // Hidden packages bob and are collected on foot.
-    for (const p of packages) {
-      if (p.found) continue;
-      p.bob += dt * 2;
-      p.mesh.position.y = 0.8 + Math.sin(p.bob) * 0.15;
-      p.mesh.rotation.y += dt;
-      if (!player.car && Math.hypot(p.x - player.x, p.z - player.z) < 1.8) {
-        p.found = true;
-        p.mesh.visible = false;
-        state.packagesFound += 1;
-        player.money += MONEY.packageValue;
-        say(world, `Hidden package found (${state.packagesFound}/10) — +$${MONEY.packageValue}`, 'good');
+    // Hidden packages: collect by proximity.
+    for (const pk of packages) {
+      if (pk.taken) continue;
+      if (Math.hypot(pk.x - player.x, pk.z - player.z) < 3) {
+        pk.taken = true;
+        pk.mesh.visible = false;
+        missions.packagesTaken++;
+        world.player.addMoney(CONFIG.packageReward);
         world.audio.pickup();
-        world.effects.floatText(`+$${MONEY.packageValue}`, p.x, 2.5, p.z, '#7dff8a');
+        world.hud.message(`Hidden package found (${missions.packagesTaken}/${CONFIG.packageCount}) — $${CONFIG.packageReward}`, 'good');
+        world.effects.sparks({ x: pk.x, y: 1, z: pk.z }, 10, 0x2fd6a3);
       }
     }
-    // Taxi fares: a flagged ped near a slow car becomes a passenger.
-    state.taxiCooldown = Math.max(0, state.taxiCooldown - dt);
-    if (!state.taxi && state.taxiCooldown <= 0 && player.car) {
-      for (const ped of world.peds.peds) {
-        if (!ped.taxi || ped.dead) continue;
-        if (Math.hypot(ped.x - player.x, ped.z - player.z) < 8 && Math.abs(player.car.speed) < 3) {
-          const dest = city.randomRoadPoint();
-          state.taxi = { ped, destX: dest.x, destZ: dest.z, timer: 75, fare: 60 + rng.int(0, 4) * 10 };
-          ped.state = 'wait';
-          say(world, `Taxi fare: take them to the marker — $${state.taxi.fare} if you're quick`, 'mission');
-          updateBeacon();
-          break;
-        }
+    // Taxi fare progress.
+    if (missions.fare) {
+      const f = missions.fare;
+      const tx = f.stage === 'pickup' ? f.x : f.dest.x;
+      const tz = f.stage === 'pickup' ? f.z : f.dest.z;
+      if (Math.hypot(tx - player.x, tz - player.z) < (f.stage === 'pickup' ? 4 : 6)) {
+        if (f.stage === 'pickup') fareDestination();
+        else finishFare();
       }
+    } else if (!missions.active || missions.active.def.type !== 'taxi') {
+      // Free-roam fares appear when the player is driving.
+      missions.fareCooldown -= dt;
+      if (player.car && missions.fareCooldown <= 0) startFare();
     }
-    if (state.taxi) {
-      const tx = state.taxi;
-      tx.timer -= dt;
-      const d = Math.hypot(tx.destX - player.x, tx.destZ - player.z);
-      if (d < 7) {
-        player.money += tx.fare;
-        world.stats.fares += 1;
-        say(world, `Fare complete — +$${tx.fare}`, 'good');
-        world.audio.win();
-        tx.ped.state = 'walk';
-        tx.ped.target = city.randomSidewalkPoint();
-        state.taxi = null;
-        state.taxiCooldown = 20;
-        updateBeacon();
-      } else if (tx.timer <= 0) {
-        say(world, 'The passenger gave up and walked away.', 'bad');
-        tx.ped.state = 'walk';
-        state.taxi = null;
-        state.taxiCooldown = 20;
-        updateBeacon();
-      }
-    }
-    if (!state.active) return;
-    const s = currentStep();
-    if (!s) return;
-    if (s.time) {
-      state.timer -= dt;
-      if (state.timer <= 0) {
-        failMission(world, 'out of time');
-        return;
-      }
-    }
-    if (s.kind === 'goto' || s.kind === 'deliver') {
-      const d = Math.hypot(s.x - player.x, s.z - player.z);
-      if (d < s.radius) advance(world);
-    } else if (s.kind === 'survive') {
-      state.surviveLeft -= dt;
-      if (state.surviveLeft <= 0) advance(world);
-    } else if (s.kind === 'grab') {
-      const d = Math.hypot(s.x - player.x, s.z - player.z);
-      if (d < s.radius && !player.car) {
-        state.grabProgress += dt;
-        if (state.grabProgress >= s.seconds) advance(world);
-      } else {
-        state.grabProgress = Math.max(0, state.grabProgress - dt * 2);
-      }
-    }
-    updateBeacon();
-  }
 
-  return {
-    missions,
-    state,
-    currentMission,
-    currentStep,
-    startMission,
-    onEvent,
-    update,
-    get objective() {
-      const s = currentStep();
-      if (state.taxi) return { label: 'Drop off the passenger', x: state.taxi.destX, z: state.taxi.destZ, timer: state.taxi.timer };
-      if (!state.active || !s) return null;
-      const x = s.kind === 'stealStyle' && state.targetCar ? state.targetCar.x : s.x;
-      const z = s.kind === 'stealStyle' && state.targetCar ? state.targetCar.z : s.z;
-      const timer = s.time ? state.timer : s.kind === 'survive' ? state.surviveLeft : s.kind === 'grab' ? Math.max(0, s.seconds - state.grabProgress) : 0;
-      return { label: s.label, x, z, timer, progress: s.kind === 'grab' ? state.grabProgress / s.seconds : 0 };
-    },
+    const m = missions.active;
+    if (!m) return;
+    const d = (x, z) => Math.hypot(x - player.x, z - player.z);
+    if (m.def.type === 'steal') {
+      if (player.car && d(city.markers.garage.x, city.markers.garage.z) < 7) completeMission();
+    } else if (m.def.type === 'shootout') {
+      const alive = m.enemies.filter((e) => !e.dead).length;
+      if (alive === 0 && m.stage === 0) {
+        m.stage = 1;
+        const docks = city.blockCenter(7, 0);
+        marker.set(docks.x + 4, docks.z + 2);
+        world.hud.message('Rivals down — grab the briefcase', 'info');
+        m.target = { x: docks.x + 4, z: docks.z + 2 };
+      }
+      if (m.stage === 1 && m.target && d(m.target.x, m.target.z) < 3) completeMission();
+    } else if (m.def.type === 'packages') {
+      if (missions.packagesTaken >= 5) completeMission();
+    } else if (m.def.type === 'heat') {
+      if (world.police.stars === 0) completeMission();
+    } else if (m.def.type === 'heist') {
+      if (m.stage === 0) {
+        if (d(city.markers.bank.x, city.markers.bank.z) < 7) {
+          m.stage = 1;
+          world.police.setStars(4);
+          world.hud.message('Vault cracked — $2,000! Lose the tail and reach the safehouse', 'bad');
+          marker.set(city.markers.safehouse.x, city.markers.safehouse.z);
+        }
+      } else if (d(city.markers.safehouse.x, city.markers.safehouse.z) < 7) {
+        world.player.addMoney(2000);
+        completeMission();
+      }
+    }
   };
+
+  // Animate the target marker (pulse).
+  missions.animateMarker = function (t) {
+    if (marker.ring.visible) {
+      const s = 1 + Math.sin(t * 4) * 0.12;
+      marker.ring.scale.setScalar(s);
+    }
+    for (const pk of packages) {
+      if (!pk.taken) {
+        pk.mesh.rotation.y += 0.02;
+        pk.mesh.position.y = 0.5 + Math.sin(t * 2 + pk.x) * 0.15;
+      }
+    }
+  };
+
+  return missions;
 }

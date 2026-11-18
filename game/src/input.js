@@ -1,112 +1,65 @@
-// Keyboard and mouse: a held-key set, edge-triggered actions, and a drag-orbit camera.
-// The camera is steered by dragging (no pointer lock), so it works in every browser and
-// in a screenshot: click-drag orbits, the wheel zooms, and the view settles behind the player.
-
-export const ACTION_ENTER_CAR = 1 << 0;
-export const ACTION_SHOOT = 1 << 1;
-export const ACTION_RELOAD = 1 << 2;
-export const ACTION_JUMP = 1 << 3;
-export const ACTION_HORN = 1 << 4;
-export const ACTION_PAUSE = 1 << 5;
-export const ACTION_CONFIRM = 1 << 6;
-export const ACTION_CAMERA = 1 << 7;
-export const ACTION_MUTE = 1 << 8;
-
-const KEY_ACTIONS = {
-  KeyE: ACTION_ENTER_CAR,
-  KeyR: ACTION_RELOAD,
-  Space: ACTION_JUMP,
-  KeyH: ACTION_HORN,
-  KeyP: ACTION_PAUSE,
-  Escape: ACTION_PAUSE,
-  Enter: ACTION_CONFIRM,
-  KeyC: ACTION_CAMERA,
-  KeyM: ACTION_MUTE,
-};
+// Keyboard and mouse input. Tracks held keys, pressed-this-frame edges, and a
+// drag-to-orbit camera. Pointer lock is optional; dragging works everywhere.
 
 export function createInput(canvas) {
   const keys = new Set();
-  let actions = 0;
-  let mouseDown = false;
-  let lastX = 0;
-  let lastY = 0;
-  /** Accumulated orbit deltas since the last read, in pixels. */
-  let orbitX = 0;
-  let orbitY = 0;
-  let wheel = 0;
+  const pressed = new Set();
+  const mouse = { dx: 0, dy: 0, down: false, x: 0, y: 0, wheel: 0 };
+  let locked = false;
 
-  function onKeyDown(event) {
-    if (event.repeat) return;
-    keys.add(event.code);
-    const action = KEY_ACTIONS[event.code];
-    if (action) {
-      actions |= action;
-      event.preventDefault();
+  function onKeyDown(e) {
+    if (e.repeat) return;
+    keys.add(e.code);
+    pressed.add(e.code);
+    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+  }
+  function onKeyUp(e) { keys.delete(e.code); }
+  function onMouseDown(e) {
+    mouse.down = true; mouse.x = e.clientX; mouse.y = e.clientY;
+    if (e.target === canvas && !locked) canvas.requestPointerLock?.();
+  }
+  function onMouseUp() { mouse.down = false; }
+  function onMouseMove(e) {
+    if (document.pointerLockElement === canvas) {
+      mouse.dx += e.movementX; mouse.dy += e.movementY; locked = true;
+    } else if (mouse.down) {
+      mouse.dx += e.clientX - mouse.x; mouse.dy += e.clientY - mouse.y;
+      mouse.x = e.clientX; mouse.y = e.clientY;
     }
-    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(event.code)) {
-      event.preventDefault();
-    }
   }
-  function onKeyUp(event) {
-    keys.delete(event.code);
-  }
-  function onMouseDown(event) {
-    mouseDown = true;
-    lastX = event.clientX;
-    lastY = event.clientY;
-    actions |= ACTION_SHOOT;
-  }
-  function onMouseUp() {
-    mouseDown = false;
-  }
-  function onMouseMove(event) {
-    if (!mouseDown) return;
-    orbitX += event.clientX - lastX;
-    orbitY += event.clientY - lastY;
-    lastX = event.clientX;
-    lastY = event.clientY;
-  }
-  function onWheel(event) {
-    wheel += event.deltaY;
-    event.preventDefault();
-  }
-  function onBlur() {
-    keys.clear();
-    mouseDown = false;
-  }
+  function onWheel(e) { mouse.wheel += e.deltaY; }
+  function onLockChange() { locked = document.pointerLockElement === canvas; }
 
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
   canvas.addEventListener('mousedown', onMouseDown);
   window.addEventListener('mouseup', onMouseUp);
   window.addEventListener('mousemove', onMouseMove);
-  canvas.addEventListener('wheel', onWheel, { passive: false });
-  window.addEventListener('blur', onBlur);
+  window.addEventListener('wheel', onWheel, { passive: true });
+  document.addEventListener('pointerlockchange', onLockChange);
 
   return {
-    /** -1/0/1 forward (W/S or arrows) and -1/0/1 strafe (A/D). */
-    move() {
-      const f = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
-      const s = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
-      return { forward: f, strafe: s, sprint: keys.has('ShiftLeft') || keys.has('ShiftRight') };
-    },
-    /** Edge-triggered actions since the last call; shooting also holds while the mouse is down. */
-    takeActions() {
-      const out = actions;
-      actions = 0;
-      if (mouseDown) return out | ACTION_SHOOT;
-      return out;
-    },
-    /** Orbit deltas in pixels since the last call, and the wheel delta. */
-    takeOrbit() {
-      const out = { x: orbitX, y: orbitY, wheel };
-      orbitX = 0;
-      orbitY = 0;
-      wheel = 0;
-      return out;
-    },
-    isDown(code) {
-      return keys.has(code);
+    // Held keys.
+    down(code) { return keys.has(code); },
+    // True only on the frame the key went down.
+    wasPressed(code) { return pressed.has(code); },
+    // Movement axes: -1..1. WASD plus arrows.
+    axisX() { return (this.down('KeyD') || this.down('ArrowRight') ? 1 : 0) - (this.down('KeyA') || this.down('ArrowLeft') ? 1 : 0); },
+    axisY() { return (this.down('KeyW') || this.down('ArrowUp') ? 1 : 0) - (this.down('KeyS') || this.down('ArrowDown') ? 1 : 0); },
+    // Mouse deltas since last frame, then cleared.
+    mouseDelta() { const d = { x: mouse.dx, y: mouse.dy }; mouse.dx = 0; mouse.dy = 0; return d; },
+    wheelDelta() { const w = mouse.wheel; mouse.wheel = 0; return w; },
+    mouseDown: () => mouse.down,
+    // Call at the end of each frame.
+    endFrame() { pressed.clear(); },
+    dispose() {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      canvas.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('wheel', onWheel);
+      document.removeEventListener('pointerlockchange', onLockChange);
     },
   };
 }
